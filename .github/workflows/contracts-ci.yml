@@ -8,7 +8,8 @@ on:
     paths:
       - 'contracts/**'
   schedule:
-    - cron: '0 3 * * 1'  # weekly Monday 03:00 UTC
+    - cron: '0 3 * * *'  # nightly at 03:00 UTC
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -41,6 +42,8 @@ jobs:
             ~/.cargo/git
             contracts/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Clippy
         working-directory: contracts
@@ -69,10 +72,42 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check fuzz eligibility
+        id: check_eligibility
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Eligible for fuzzing (nightly/dispatch run)."
+            echo "run_fuzz=true" >> "$GITHUB_OUTPUT"
+            echo "fuzz_duration=60" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin ${{ github.base_ref }} --depth=1 || true
+            CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD || true)
+            if echo "$CHANGED_FILES" | grep -q "^contracts/shared/src/amm.rs$"; then
+              echo "Eligible for fuzzing (contracts/shared/src/amm.rs modified in PR)."
+              echo "run_fuzz=true" >> "$GITHUB_OUTPUT"
+              echo "fuzz_duration=30" >> "$GITHUB_OUTPUT"
+              exit 0
+            else
+              echo "Skipping fuzzing: contracts/shared/src/amm.rs was not modified in this PR."
+              echo "run_fuzz=false" >> "$GITHUB_OUTPUT"
+              echo "fuzz_duration=30" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "Skipping fuzzing for event: ${{ github.event_name }}"
+          echo "run_fuzz=false" >> "$GITHUB_OUTPUT"
+          echo "fuzz_duration=30" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust nightly
+        if: steps.check_eligibility.outputs.run_fuzz == 'true'
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Cache cargo
+        if: steps.check_eligibility.outputs.run_fuzz == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -80,14 +115,31 @@ jobs:
             ~/.cargo/git
             contracts/target
           key: ${{ runner.os }}-cargo-fuzz-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fuzz-
 
-      - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+      - name: Cache cargo-fuzz binary
+        id: cache-cargo-fuzz
+        if: steps.check_eligibility.outputs.run_fuzz == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-fuzz
+          key: ${{ runner.os }}-cargo-fuzz-bin-${{ runner.arch }}-v1
 
-      - name: Fuzz AMM price functions (60 s)
+      - name: Install cargo-binstall
+        if: steps.check_eligibility.outputs.run_fuzz == 'true' && steps.cache-cargo-fuzz.outputs.cache-hit != 'true'
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install cargo-fuzz via cargo-binstall
+        if: steps.check_eligibility.outputs.run_fuzz == 'true' && steps.cache-cargo-fuzz.outputs.cache-hit != 'true'
+        run: cargo binstall --no-confirm cargo-fuzz
+
+      - name: Fuzz AMM price functions (${{ steps.check_eligibility.outputs.fuzz_duration }}s)
+        if: steps.check_eligibility.outputs.run_fuzz == 'true'
         working-directory: contracts/shared
-        run: cargo fuzz run amm_fuzz -- -max_total_time=60
+        run: cargo fuzz run amm_fuzz -- -max_total_time=${{ steps.check_eligibility.outputs.fuzz_duration }}
 
-      - name: Fuzz payout calculations (60 s)
+      - name: Fuzz payout calculations (${{ steps.check_eligibility.outputs.fuzz_duration }}s)
+        if: steps.check_eligibility.outputs.run_fuzz == 'true'
         working-directory: contracts/shared
-        run: cargo fuzz run payout_fuzz -- -max_total_time=60
+        run: cargo fuzz run payout_fuzz -- -max_total_time=${{ steps.check_eligibility.outputs.fuzz_duration }}

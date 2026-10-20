@@ -63,6 +63,36 @@ cd indexer && npm install && npm run dev
 cd frontend && npm install && npm run dev
 ```
 
+### Workspace Commands
+
+You can run unified tasks across all packages (`backend`, `indexer`, and `frontend`) directly from the repository root:
+
+```bash
+# Run backend, indexer, and frontend test suites sequentially
+npm test
+
+# Run linter across all packages and report unified status
+npm run lint
+
+# Build and compile all packages
+npm run build
+
+# Run TypeScript typechecks across all packages
+npm run type-check
+
+# Granular subproject commands
+npm run test:backend      # Run backend test suite
+npm run test:indexer      # Run indexer test suite
+npm run test:frontend     # Run frontend test suite
+npm run test:integration  # Run backend integration tests
+npm run test:e2e          # Run backend E2E tests
+npm run lint:backend      # Run backend ESLint
+npm run lint:frontend     # Run frontend Next.js lint
+npm run build:backend     # Compile backend TypeScript
+npm run build:indexer     # Compile indexer TypeScript
+npm run build:frontend    # Build frontend Next.js production bundle
+```
+
 ## Contract Deployment
 
 Requires [Rust](https://rustup.rs/) and the [Stellar CLI](https://developers.stellar.org/docs/tools/developer-tools/cli/stellar-cli).

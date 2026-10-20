@@ -6,6 +6,7 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "build": "tsc --noEmit",
     "build:prod": "tsc",
+    "type-check": "tsc --noEmit",
     "lint": "eslint 'src/**/*.ts' 'tests/**/*.ts'",
     "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
     "precommit": "node scripts/verify-schema.js",

@@ -9,6 +9,7 @@
     "start": "next start -p 3000",
     "test": "jest",
     "lint": "next lint",
+    "type-check": "tsc --noEmit",
     "format": "prettier --write 'src/**/*.{ts,tsx}'",
     "test:e2e": "playwright test",
     "e2e:cleanup": "node ../backend/scripts/e2e-cleanup.js"

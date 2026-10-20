@@ -3,7 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test": "npm --prefix backend test && npm --prefix indexer test && npm --prefix frontend test",
+    "test:backend": "npm --prefix backend test",
+    "test:indexer": "npm --prefix indexer test",
+    "test:frontend": "npm --prefix frontend test",
     "test:e2e": "npm --prefix backend run test:e2e",
-    "test:integration": "npm --prefix backend run test:integration"
+    "test:integration": "npm --prefix backend run test:integration",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint && npm --prefix indexer run lint",
+    "lint:backend": "npm --prefix backend run lint",
+    "lint:indexer": "npm --prefix indexer run lint",
+    "lint:frontend": "npm --prefix frontend run lint",
+    "build": "npm --prefix backend run build:prod && npm --prefix indexer run build && npm --prefix frontend run build",
+    "build:backend": "npm --prefix backend run build:prod",
+    "build:indexer": "npm --prefix indexer run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "type-check": "npm --prefix backend run type-check && npm --prefix indexer run type-check && npm --prefix frontend run type-check",
+    "type-check:backend": "npm --prefix backend run type-check",
+    "type-check:indexer": "npm --prefix indexer run type-check",
+    "type-check:frontend": "npm --prefix frontend run type-check"
   }
 }

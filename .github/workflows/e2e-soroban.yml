@@ -80,7 +80,7 @@ jobs:
         working-directory: contracts
         run: |
           FACTORY_ID=$(stellar contract deploy \
-            --wasm target/wasm32-unknown-unknown/release/market_factory.wasm \
+            --wasm target/wasm32-unknown-unknown/release/boxmeout_market_factory.wasm \
             --source test-key \
             --network local)
           echo "factory_id=$FACTORY_ID" >> "$GITHUB_OUTPUT"
@@ -90,7 +90,7 @@ jobs:
         working-directory: contracts
         run: |
           MARKET_ID=$(stellar contract deploy \
-            --wasm target/wasm32-unknown-unknown/release/market.wasm \
+            --wasm target/wasm32-unknown-unknown/release/boxmeout_market.wasm \
             --source test-key \
             --network local)
           echo "market_id=$MARKET_ID" >> "$GITHUB_OUTPUT"
@@ -108,6 +108,10 @@ jobs:
       - name: Install backend deps
         working-directory: backend
         run: npm ci
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build:prod
 
       - name: Start backend
         working-directory: backend
@@ -160,6 +164,7 @@ jobs:
           BASE_URL: http://localhost:3000
           SOROBAN_TEST_PUBLIC_KEY: ${{ steps.keypair.outputs.public_key }}
           SOROBAN_MARKET_CONTRACT_ID: ${{ steps.deploy_market.outputs.market_id }}
+          E2E_FACTORY_CONTRACT_ADDRESS: ${{ steps.deploy_factory.outputs.factory_id }}
           DATABASE_URL: postgresql://bankerchanger:bankerchanger@localhost:5432/bankerchanger
         run: npx playwright test e2e/soroban-bet-flow.spec.ts
 

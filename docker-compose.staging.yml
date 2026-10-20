@@ -26,11 +26,14 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
-    command: redis-server --requirepass ${REDIS_PASSWORD:-staging_redis_password}
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDISCLI_AUTH=${REDIS_PASSWORD}
     ports:
       - '${REDIS_PORT:-6380}:6379'
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test: ['CMD-SHELL', 'REDISCLI_AUTH="${REDIS_PASSWORD}" redis-cli ping 2>/dev/null || redis-cli -a "${REDIS_PASSWORD}" ping 2>/dev/null | grep PONG']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,12 +48,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - ./indexer/.env.staging
     environment:
       - NODE_ENV=staging
       - FACTORY_CONTRACT_ADDRESS=${FACTORY_CONTRACT_ADDRESS}
       - SOROBAN_RPC_URL=${STELLAR_RPC_URL:-https://soroban-testnet.stellar.org}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
     ports:
       - '${INDEXER_PORT:-3003}:3002'
     volumes:
@@ -80,6 +87,8 @@ services:
     environment:
       - NODE_ENV=staging
       - PORT=${BACKEND_PORT:-3001}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
     ports:
       - '${BACKEND_PORT:-3001}:${BACKEND_PORT:-3001}'
     networks:

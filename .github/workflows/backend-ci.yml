@@ -4,9 +4,13 @@ on:
   push:
     paths:
       - 'backend/**'
+      - 'docker-compose.staging.yml'
+      - '.env.staging.example'
   pull_request:
     paths:
       - 'backend/**'
+      - 'docker-compose.staging.yml'
+      - '.env.staging.example'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -115,6 +119,9 @@ jobs:
         env:
           DATABASE_URL: postgresql://bankerchanger:bankerchanger@localhost:5432/bankerchanger
           REDIS_URL: redis://localhost:6379
+
+      - name: Verify Staging Redis Security Configuration (#956)
+        run: bash backend/scripts/verify-staging-redis-security.sh
 
       - name: Automated E2E Integration Test Suite
         working-directory: backend

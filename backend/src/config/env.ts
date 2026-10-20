@@ -12,6 +12,7 @@ export class ConfigurationError extends Error {
 const envSchema = z.object({
   DATABASE_URL: z.string().url('DATABASE_URL must be a valid URL'),
   REDIS_URL: z.string().url('REDIS_URL must be a valid URL'),
+  REDIS_PASSWORD: z.string().optional(),
   STELLAR_RPC_URL: z.string().url('STELLAR_RPC_URL must be a valid URL'),
   ORACLE_PRIVATE_KEY: z
     .string()
@@ -23,7 +24,7 @@ const envSchema = z.object({
   ADMIN_JWT_SECRET: z.string().min(1, 'ADMIN_JWT_SECRET is required'),
   FACTORY_CONTRACT_ADDRESS: z.string().min(1, 'FACTORY_CONTRACT_ADDRESS is required'),
   PORT: z.coerce.number().int().positive().default(3000),
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  NODE_ENV: z.enum(['development', 'production', 'test', 'staging']).default('development'),
   JWT_SECRET: z.string().refine(
     (secret) => Buffer.byteLength(secret, 'utf8') >= 32,
     'JWT_SECRET must be at least 32 bytes',

@@ -1,9 +1,17 @@
-import Redis from 'ioredis';
+import Redis, { RedisOptions } from 'ioredis';
 import { logger } from '../utils/logger';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
-export const redis = new Redis(REDIS_URL, { lazyConnect: true });
+const redisOptions: RedisOptions = {
+  lazyConnect: true,
+};
+
+if (process.env.REDIS_PASSWORD) {
+  redisOptions.password = process.env.REDIS_PASSWORD;
+}
+
+export const redis = new Redis(REDIS_URL, redisOptions);
 
 // Error event handler - prevents uncaught exception crash
 redis.on('error', (err) => {

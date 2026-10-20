@@ -7,6 +7,7 @@ This document describes the automated PostgreSQL backup infrastructure for BANKE
 **Key Features:**
 - ✅ Daily automated backups (2:00 AM UTC)
 - ✅ AES-256 encryption at rest
+- ✅ SHA-256 checksum integrity verification
 - ✅ AWS S3 storage with versioning
 - ✅ 30-day retention policy
 - ✅ Weekly integrity verification

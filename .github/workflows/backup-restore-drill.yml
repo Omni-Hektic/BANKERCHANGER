@@ -106,6 +106,20 @@ jobs:
           
           echo "✓ Backup downloaded (size: $(du -h /tmp/backup.sql.gz.enc | cut -f1))"
 
+      - name: Verify backup SHA-256 integrity checksum
+        run: |
+          echo "Downloading SHA-256 checksum from S3..."
+          if aws s3 cp "s3://${{ secrets.AWS_S3_BACKUP_BUCKET }}/${{ steps.download-backup.outputs.backup_file }}.sha256" \
+            /tmp/backup.sql.gz.enc.sha256 \
+            --region ${{ env.AWS_REGION }}; then
+            echo "Verifying SHA-256 checksum with sha256sum -c..."
+            (cd /tmp && sha256sum -c backup.sql.gz.enc.sha256)
+            echo "✓ SHA-256 integrity checksum verified successfully"
+          else
+            echo "⚠ Checksum file not present for legacy backup; calculating local hash"
+            sha256sum /tmp/backup.sql.gz.enc
+          fi
+
       - name: Decrypt and decompress backup
         run: |
           echo "Decrypting backup..."

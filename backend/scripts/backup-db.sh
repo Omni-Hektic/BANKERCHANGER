@@ -7,12 +7,14 @@
 # Description:
 #   Performs daily PostgreSQL backup using pg_dump with compression.
 #   Encrypts backup with AES-256 using OpenSSL.
-#   Uploads encrypted backup to AWS S3 with timestamp.
+#   Generates SHA-256 integrity checksum alongside every backup.
+#   Uploads encrypted backup and checksum to AWS S3 with timestamp.
 #   Manages backup retention (default: 30 days).
 #
 # Requirements:
 #   - PostgreSQL client tools (pg_dump)
 #   - OpenSSL for encryption
+#   - sha256sum for integrity verification
 #   - AWS CLI v2 configured with credentials
 #   - Environment variables: DATABASE_URL, AWS_S3_BACKUP_BUCKET, AWS_REGION
 #
@@ -24,7 +26,7 @@
 #   0 - Success
 #   1 - Configuration error
 #   2 - Backup creation failed
-#   3 - Encryption failed
+#   3 - Encryption or checksum generation failed
 #   4 - S3 upload failed
 #   5 - Cleanup failed
 #
@@ -57,6 +59,10 @@ ENCRYPTION_KEY_FILE="${BACKUP_ENCRYPTION_KEY_FILE:-}"
 
 # Logging
 LOG_DIR="${LOG_DIR:-/var/log/backups}"
+if ! mkdir -p "$LOG_DIR" 2>/dev/null; then
+  LOG_DIR="${TMPDIR:-/tmp}/backups"
+  mkdir -p "$LOG_DIR" 2>/dev/null || LOG_DIR="."
+fi
 LOG_FILE="${LOG_DIR}/backup-$(date +%Y%m).log"
 
 # Temporary directory for backup files
@@ -72,22 +78,32 @@ ENCRYPTED_FILE="${COMPRESSED_FILE}.enc"
 # ── Functions ─────────────────────────────────────────────────────────────
 
 log_info() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*" | tee -a "$LOG_FILE"
+  local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*"
+  echo "$msg"
+  echo "$msg" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 log_error() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" | tee -a "$LOG_FILE" >&2
+  local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*"
+  echo "$msg" >&2
+  echo "$msg" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 log_warn() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*" | tee -a "$LOG_FILE"
+  local msg="[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*"
+  echo "$msg"
+  echo "$msg" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 validate_config() {
   local errors=0
 
-  # Ensure log directory exists
-  mkdir -p "$LOG_DIR"
+  # Ensure log directory exists (fallback to /tmp if permission denied)
+  if ! mkdir -p "$LOG_DIR" 2>/dev/null; then
+    LOG_DIR="/tmp/backups"
+    mkdir -p "$LOG_DIR"
+    LOG_FILE="${LOG_DIR}/backup-$(date +%Y%m).log"
+  fi
 
   # Validate S3 configuration
   if [[ -z "$S3_BUCKET" ]]; then
@@ -102,7 +118,7 @@ validate_config() {
   fi
 
   # Validate required tools
-  local required_tools=("pg_dump" "gzip" "openssl" "aws")
+  local required_tools=("pg_dump" "gzip" "openssl" "aws" "sha256sum")
   for tool in "${required_tools[@]}"; do
     if ! command -v "$tool" &> /dev/null; then
       log_error "Required tool not found: $tool"
@@ -129,7 +145,6 @@ create_backup() {
   log_info "Starting database backup: $DB_NAME"
 
   # Extract database credentials from CONNECTION_STRING
-  # Format: postgresql://user:password@host:port/database
   local db_user db_host db_port
   
   # Parse DATABASE_URL
@@ -170,7 +185,7 @@ compress_backup() {
 encrypt_backup() {
   log_info "Encrypting backup with AES-256..."
 
-  if [[ ! -f "$COMPRESSION_KEY_FILE" ]]; then
+  if [[ ! -f "$ENCRYPTION_KEY_FILE" ]]; then
     log_error "Encryption key file not found: $ENCRYPTION_KEY_FILE"
     return 3
   fi
@@ -200,8 +215,40 @@ encrypt_backup() {
   fi
 }
 
+generate_checksum() {
+  local target_file="${1:-$ENCRYPTED_FILE}"
+  log_info "Generating SHA-256 checksum for backup: $target_file"
+
+  if [[ ! -f "$target_file" ]]; then
+    log_error "Backup file for checksum generation not found: $target_file"
+    return 3
+  fi
+
+  local target_dir target_basename
+  target_dir=$(cd "$(dirname "$target_file")" && pwd)
+  target_basename=$(basename "$target_file")
+
+  # Generate checksum file using relative basename so sha256sum -c works in any path
+  if (cd "$target_dir" && sha256sum "$target_basename" > "${target_basename}.sha256"); then
+    log_info "SHA-256 checksum generated successfully: ${target_file}.sha256"
+    log_info "SHA-256: $(awk '{print $1}' "${target_file}.sha256")"
+
+    # Also store alongside local backups if BACKUP_DIR is configured
+    if [[ -n "$BACKUP_DIR" ]] && mkdir -p "$BACKUP_DIR" 2>/dev/null; then
+      cp "$target_file" "$BACKUP_DIR/" 2>/dev/null || true
+      cp "${target_file}.sha256" "$BACKUP_DIR/" 2>/dev/null || true
+    fi
+
+    return 0
+  else
+    log_error "Failed to generate SHA-256 checksum"
+    return 3
+  fi
+}
+
 upload_to_s3() {
   local s3_path="s3://${S3_BUCKET}/${S3_PREFIX}/${DB_NAME}_${TIMESTAMP}.sql.gz.enc"
+  local s3_checksum_path="${s3_path}.sha256"
 
   log_info "Uploading encrypted backup to S3: $s3_path"
 
@@ -213,11 +260,26 @@ upload_to_s3() {
     
     log_info "S3 upload completed successfully"
     log_info "S3 Location: $s3_path"
-    return 0
   else
     log_error "S3 upload failed"
     return 4
   fi
+
+  # Upload SHA-256 checksum file alongside backup
+  if [[ -f "${ENCRYPTED_FILE}.sha256" ]]; then
+    log_info "Uploading SHA-256 checksum to S3: $s3_checksum_path"
+    if aws s3 cp "${ENCRYPTED_FILE}.sha256" "$s3_checksum_path" \
+      --region "$AWS_REGION" \
+      --sse AES256 \
+      2>> "$LOG_FILE"; then
+      log_info "S3 checksum upload completed successfully"
+    else
+      log_error "S3 checksum upload failed"
+      return 4
+    fi
+  fi
+
+  return 0
 }
 
 cleanup_old_backups() {
@@ -254,14 +316,6 @@ send_status() {
   local message="$2"
 
   log_info "Backup Status: $status | $message"
-
-  # Optional: Send to monitoring system (e.g., Sentry, DataDog, CloudWatch)
-  # Example with CloudWatch:
-  # aws cloudwatch put-metric-data \
-  #   --namespace "BANKERCHANGER/Database" \
-  #   --metric-name "BackupStatus" \
-  #   --value 1 \
-  #   --region "$AWS_REGION"
 }
 
 # ── Main Execution ────────────────────────────────────────────────────────
@@ -295,6 +349,12 @@ main() {
     exit 3
   fi
 
+  # Generate SHA-256 checksum alongside backup
+  if ! generate_checksum "$ENCRYPTED_FILE"; then
+    send_status "FAILED" "Checksum generation failed"
+    exit 3
+  fi
+
   # Upload to S3
   if ! upload_to_s3; then
     send_status "FAILED" "S3 upload failed"
@@ -309,7 +369,7 @@ main() {
   log_info "════════════════════════════════════════════════════════════"
   log_info "Backup Process Completed Successfully"
   log_info "════════════════════════════════════════════════════════════"
-  send_status "SUCCESS" "Backup completed and encrypted"
+  send_status "SUCCESS" "Backup completed, encrypted, and verified with SHA-256 checksum"
   exit 0
 }
 

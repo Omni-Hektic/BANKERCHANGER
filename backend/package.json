@@ -7,6 +7,7 @@
     "build": "tsc --noEmit",
     "build:prod": "tsc",
     "lint": "eslint 'src/**/*.ts' 'tests/**/*.ts'",
+    "lint:lockfile": "npm install --package-lock-only && git diff --exit-code package-lock.json",
     "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
     "precommit": "node scripts/verify-schema.js",
     "migrate": "drizzle-kit migrate",
